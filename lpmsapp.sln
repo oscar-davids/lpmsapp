@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 15
+VisualStudioVersion = 15.0.28307.1082
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "lpmsapp", "lpmsapp\lpmsapp.vcxproj", "{3FC0B89B-6D7A-45AF-9186-DC150C0DFCCC}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{3FC0B89B-6D7A-45AF-9186-DC150C0DFCCC}.Debug|x64.ActiveCfg = Debug|x64
+		{3FC0B89B-6D7A-45AF-9186-DC150C0DFCCC}.Debug|x64.Build.0 = Debug|x64
+		{3FC0B89B-6D7A-45AF-9186-DC150C0DFCCC}.Release|x64.ActiveCfg = Release|x64
+		{3FC0B89B-6D7A-45AF-9186-DC150C0DFCCC}.Release|x64.Build.0 = Release|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {8726CC70-3A4B-4CA1-B64C-3B41A322A52D}
+	EndGlobalSection
+EndGlobal
