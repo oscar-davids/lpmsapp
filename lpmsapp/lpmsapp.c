@@ -29,8 +29,134 @@ struct VideoProfile profile[MAX_PROFILE] = {
 };
 
 //app input.mp4 output.ts P720p25fps16x9 sw
+//app input.mp4 position length 
+#define PACKET_VALIDITY 1
+/*
+if success return 1
+else return 0
+*/
+int checkValidity(const char* fname, int pkpos, int pklength)
+{
+	int bret = 0;
+	int ret = 0;
+	AVPacket pkt = { 0 };
+	AVCodec *dec;
+	AVCodecContext *dec_ctx = NULL;
+	AVFrame *frame = NULL;
+	AVFormatContext *fmt_ctx = NULL;
+	int stream_idx = 0;
+
+	if (avformat_open_input(&fmt_ctx, fname, NULL, NULL) < 0) {
+		fprintf(stderr, "Could not open source file %s\n", fname);
+		return -1;
+	}
+
+	if (avformat_find_stream_info(fmt_ctx, NULL) < 0) {
+		fprintf(stderr, "Could not find stream information\n");
+		return -1;
+	}
+
+	ret = av_find_best_stream(fmt_ctx, AVMEDIA_TYPE_VIDEO, -1, -1, &dec, 0);
+	if (ret < 0) {
+		fprintf(stderr, "Could not find %s stream in input file '%s'\n",
+			av_get_media_type_string(AVMEDIA_TYPE_VIDEO), fname);
+		return ret;
+	}
+
+	stream_idx = ret;
+
+	dec_ctx = avcodec_alloc_context3(dec);
+
+	if (!dec_ctx) {
+		fprintf(stderr, "failed to allocate codec\n");
+		return AVERROR(EINVAL);
+	}
+
+	ret = avcodec_parameters_to_context(dec_ctx, fmt_ctx->streams[stream_idx]->codecpar);
+	if (ret < 0) {
+		fprintf(stderr, "Failed to copy codec parameters to codec context\n");
+		return ret;
+	}
+
+	av_dump_format(fmt_ctx, 0, fname, 0);
+	if ((ret = avcodec_open2(dec_ctx, dec, NULL)) < 0) {
+		av_log(NULL, AV_LOG_ERROR, "Cannot open video decoder\n");
+		return ret;
+	}
+
+	frame = av_frame_alloc();
+	if (!frame) {
+		fprintf(stderr, "Could not allocate frame\n");
+		ret = AVERROR(ENOMEM);
+		//goto end;
+		return -1;
+	}
+	//decode once
+	while (av_read_frame(fmt_ctx, &pkt) >= 0) {
+
+		if (pkt.stream_index == stream_idx)
+		{
+			//ret = decode_packet(&pkt);
+			ret = avcodec_send_packet(dec_ctx, &pkt);
+			if (ret < 0) {
+				fprintf(stderr, "Error while sending a packet to the decoder\n");
+				return ret;
+			}
+			while (ret >= 0) {
+				ret = avcodec_receive_frame(dec_ctx, frame);
+				if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+					ret = 0;
+					break;
+				}
+			}
+
+			break;
+		}
+	}
+
+	// second packet 
+	FILE *fvideo = fopen(fname, "rb");
+	pkt.data = (uint8_t*)malloc(pklength);
+	if (fvideo) {
+		fseek(fvideo, pkpos, SEEK_SET);
+		fread(pkt.data, 1, pklength, fvideo);
+		fclose(fvideo);
+	}
+	pkt.size = pklength;
+
+	ret = avcodec_send_packet(dec_ctx, &pkt);
+
+	if (ret >= 0)
+	{
+		while (ret >= 0) {
+			ret = avcodec_receive_frame(dec_ctx, frame);
+			if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+				ret = 0;
+				break;
+			}
+			else if (ret < 0) {
+				fprintf(stderr, "Error while receiving a frame from the decoder\n");
+				break;
+			}
+			if (frame->pict_type == AV_PICTURE_TYPE_I || frame->pict_type == AV_PICTURE_TYPE_B ||
+				frame->pict_type == AV_PICTURE_TYPE_P)
+			{
+				bret = 1;
+				fprintf(stderr, "width = %d height = %d\n", frame->width, frame->height);
+			}
+		}
+	}	
+
+	if (fvideo) close(fvideo);
+	if (pkt.data) free(pkt.data);
+		
+	return bret;
+}
+
 int main(int argc, char **argv)
 {		
+#ifdef PACKET_VALIDITY
+#else
 	int ret = 0;
 	if(argc != 5) return -1;
 
@@ -100,4 +226,5 @@ int main(int argc, char **argv)
 	if (outparam) free(outparam);
 
 	lpms_transcode_stop(h);
+#endif
 }
