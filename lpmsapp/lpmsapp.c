@@ -2,6 +2,14 @@
 #include <sys/stat.h>
 
 #define MAX_PROFILE 13
+#define PACKET_VALIDITY 1
+/*
+decoding and no decoding flag define
+1: decoding - yes(compare with W & H after decoding)
+0: decoding - no(compare with position and length of AVpacket)
+*/
+#define PACKET_DECODING 0 
+#define MAX_INDEXNUM 20
 
 struct  VideoProfile {
 	char	Name[64];
@@ -12,7 +20,7 @@ struct  VideoProfile {
 	int		ResolutionH;
 	char	AspectRatio[64];
 };
-struct VideoProfile profile[MAX_PROFILE] = {
+struct VideoProfile profiles[MAX_PROFILE] = {
 	{ "P720p60fps16x9", 6000000, 60, 1, 1280, 720, "16:9" },
 	{"P720p30fps16x9", 4000000, 30, 1, 1280, 720, "16:9" },
 	{"P720p25fps16x9", 3500000, 25, 1, 1280, 720, "16:9" },
@@ -28,23 +36,110 @@ struct VideoProfile profile[MAX_PROFILE] = {
 	{"P144p30fps16x9", 400000, 30, 1, 256, 144,"16:9" }
 };
 
-//app input.mp4 output.ts P720p25fps16x9 sw
-//app input.mp4 position length 
-#define PACKET_VALIDITY 1
 /*
-if success return 1
-else return 0
+find index inf profile list
+success return 0 >=0 
+fail	return < 0
 */
-int checkValidity(const char* fname, int pkpos, int pklength)
+int getprofileID(char* profile) 
 {
-	int bret = 0;
+	int index = -1;
+	//check profile index
+	for (int i = 0; i < MAX_PROFILE; i++)
+	{
+		if (strcmp(profile, profiles[i].Name) == 0) {
+			index = i;
+			break;
+		}
+	}
+	return index;
+}
+/*
+read one packet in video
+success return 0
+fail	return < 0
+*/
+int readonepacket(AVFormatContext *fmt_ctx, AVCodecContext *dec_ctx, AVPacket *pkt, AVFrame *frame, int stream_idx)
+{
 	int ret = 0;
-	AVPacket pkt = { 0 };
-	AVCodec *dec;
-	AVCodecContext *dec_ctx = NULL;
-	AVFrame *frame = NULL;
+	while (av_read_frame(fmt_ctx, pkt) >= 0) {
+
+		if (pkt->stream_index == stream_idx)
+		{
+			ret = avcodec_send_packet(dec_ctx, pkt);
+			if (ret < 0) {
+				fprintf(stderr, "Error while sending a packet to the decoder\n");
+				return ret;
+			}
+			while (ret >= 0) {
+				ret = avcodec_receive_frame(dec_ctx, frame);
+				if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+					ret = 0;
+					break;
+				}
+			}		
+		}
+	}
+	return ret;
+}
+int checkrange(int* indicies, int count, int pkindex, int delta, int* flags)
+{
+	int ret = -1;
+	for (int i = 0; i < count; i++)
+	{
+		if (flags[i]) continue;
+		if (pkindex >= indicies[i] - delta && pkindex < indicies[i] + delta)
+		{
+			ret = i;
+			break;
+		}
+	}
+	return ret;
+}
+
+int isindices(int* indicies, int count, int pkindex)
+{
+	int ret = -1;
+	for (int i = 0; i < count; i++)
+	{
+		if (indicies[i] == pkindex) {
+			ret = i;
+			break;
+		}
+	}
+	return ret;
+}
+
+
+/*
+success return 0
+fail	return != 0
+*/
+int checkValidity(const char* fname, int* indicies, int* pkpos, int* pklength, int count, char* profile)
+{
+	int bcheck = -1;
+	int ret = 0;
+	
+	//decoding path
 	AVFormatContext *fmt_ctx = NULL;
+	AVCodec *dec = NULL;
+	AVCodecContext *dec_ctx = NULL;
+	AVPacket pkt = { 0 };
+	AVFrame *frame = NULL;
+	int scanflags[MAX_INDEXNUM] = {0,};
 	int stream_idx = 0;
+	int oknum = 0;
+	
+
+	int proid = getprofileID(profile);
+	if (proid < 0) {
+		fprintf(stderr, "Could not find profile is %s\n", profile);
+		return -1;
+	}
+
+	int proW = profiles[proid].ResolutionW;
+	int proH = profiles[proid].ResolutionH;
+	int scandelta = 100;// profiles[proid].Framerate;
 
 	if (avformat_open_input(&fmt_ctx, fname, NULL, NULL) < 0) {
 		fprintf(stderr, "Could not open source file %s\n", fname);
@@ -83,79 +178,160 @@ int checkValidity(const char* fname, int pkpos, int pklength)
 		av_log(NULL, AV_LOG_ERROR, "Cannot open video decoder\n");
 		return ret;
 	}
-
+#if PACKET_DECODING
 	frame = av_frame_alloc();
 	if (!frame) {
 		fprintf(stderr, "Could not allocate frame\n");
-		ret = AVERROR(ENOMEM);
-		//goto end;
+		ret = AVERROR(ENOMEM);		
 		return -1;
 	}
-	//decode once
-	while (av_read_frame(fmt_ctx, &pkt) >= 0) {
-
-		if (pkt.stream_index == stream_idx)
+	//if could decide first frame
+	if (readonepacket(fmt_ctx, dec_ctx, &pkt, frame, stream_idx) == 0)
+	{
+		av_packet_unref(&pkt);
+		//decoding indices frames		
+		FILE *fvideo = fopen(fname, "rb");
+		
+		for (int i = 0; i < count; i++)
 		{
-			//ret = decode_packet(&pkt);
-			ret = avcodec_send_packet(dec_ctx, &pkt);
-			if (ret < 0) {
-				fprintf(stderr, "Error while sending a packet to the decoder\n");
-				return ret;
+			pkt.data = (uint8_t*)malloc(pklength[i]);
+			if (fvideo) {
+				fseek(fvideo, pkpos[i], SEEK_SET);
+				fread(pkt.data, 1, pklength[i], fvideo);
+				fclose(fvideo);
 			}
-			while (ret >= 0) {
-				ret = avcodec_receive_frame(dec_ctx, frame);
-				if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
-					ret = 0;
-					break;
+			pkt.size = pklength[i];
+
+			ret = avcodec_send_packet(dec_ctx, &pkt);
+
+			if (ret >= 0)
+			{
+				while (ret >= 0) {
+					ret = avcodec_receive_frame(dec_ctx, frame);
+					if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+						ret = 0;
+						break;
+					}
+					else if (ret < 0) {
+						fprintf(stderr, "Error while receiving a frame from the decoder\n");
+						break;
+					}
+					if (frame->pict_type == AV_PICTURE_TYPE_I || frame->pict_type == AV_PICTURE_TYPE_B ||
+						frame->pict_type == AV_PICTURE_TYPE_P)
+					{
+						//debug
+						fprintf(stderr, "width = %d height = %d\n", frame->width, frame->height);
+						if (proW == frame->width && proH == frame->height) {
+							oknum++;
+						}
+					}
+					av_frame_free(&frame);
 				}
 			}
 
-			break;
+			if (pkt.data) free(pkt.data);
 		}
-	}
-
-	// second packet 
-	FILE *fvideo = fopen(fname, "rb");
-	pkt.data = (uint8_t*)malloc(pklength);
-	if (fvideo) {
-		fseek(fvideo, pkpos, SEEK_SET);
-		fread(pkt.data, 1, pklength, fvideo);
-		fclose(fvideo);
-	}
-	pkt.size = pklength;
-
-	ret = avcodec_send_packet(dec_ctx, &pkt);
-
-	if (ret >= 0)
-	{
-		while (ret >= 0) {
-			ret = avcodec_receive_frame(dec_ctx, frame);
-			if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
-				ret = 0;
-				break;
-			}
-			else if (ret < 0) {
-				fprintf(stderr, "Error while receiving a frame from the decoder\n");
-				break;
-			}
-			if (frame->pict_type == AV_PICTURE_TYPE_I || frame->pict_type == AV_PICTURE_TYPE_B ||
-				frame->pict_type == AV_PICTURE_TYPE_P)
-			{
-				bret = 1;
-				fprintf(stderr, "width = %d height = %d\n", frame->width, frame->height);
-			}
-		}
-	}	
-
-	if (fvideo) close(fvideo);
-	if (pkt.data) free(pkt.data);
+		//check flag for validity packets
+		if(oknum == count)
+			bcheck = 0;
 		
-	return bret;
-}
+		if (fvideo) close(fvideo);
+	}
+	else
+	{
+		bcheck = -1;
+	}
+#else
+	//only read and compare positions and lengths without decoding
+	/* read all packets */
+	int packetcount = 0;
+	int tmpid = -1;
+	while (1) {
+		if ((ret = av_read_frame(fmt_ctx, &pkt)) < 0)
+			break;
+		packetcount++;
+		//get index
+		//tmpid = checkrange(indicies, count, packetcount, scandelta, scanflags);
+		tmpid = isindices(indicies, count, packetcount);
+		//for debug
+		//printf("packet info: id: %d, pos: %d len: %d\n", packetcount, pkt.pos, pkt.size);
+		//compare position and length
+		if (tmpid != -1) {
+			if (pkt.pos == pkpos[tmpid] && pkt.size == pklength[tmpid]) {
+				scanflags[tmpid] = 1;
+			}
+		}		
+		av_packet_unref(&pkt);
+	}
+	
+	for (int i = 0; i < count; i++)
+	{
+		if (scanflags[i] == 1) oknum++;
+	}
+	if (oknum == count)
+		bcheck = 0;
+#endif
+	//free buffers
+	if(dec_ctx)
+		avcodec_free_context(&dec_ctx);
+	if (fmt_ctx)
+		avformat_close_input(&fmt_ctx);	
 
+	return bcheck;
+}
+int parseparam(char* strlists, int* pout)
+{
+	int tmpindnum = 0;
+	if (strlen(strlists) > 0) {
+		char tmpid[10];
+		char* pstmp = strlists;
+		int prepos = 0;
+		int slen = 0;
+		for (int i = 0; i < strlen(strlists); i++)
+		{
+			if (pstmp[i] == ',' || i == strlen(strlists) - 1) {
+				slen = i - prepos;
+				if (i == strlen(strlists) - 1) slen++;
+				memset(tmpid, 0x00, 10);
+				strncpy(tmpid, pstmp + prepos, slen);
+				pout[tmpindnum] = atoi(tmpid);
+				//av_log(NULL, AV_LOG_ERROR, "oscar --- index:%d: %d\n", tmpindnum, tmpindices[tmpindnum]);
+				tmpindnum++;
+				prepos = i + 1;
+			}
+		}
+	}
+	return tmpindnum;
+}
+//app input.mp4 output.ts P720p25fps16x9 sw
+//app input.mp4 indicies(8,13,...) positions(147956,172020,...) lengths(1504,1316,...) count_of_indicies profilename(P720p30fps16x9)
 int main(int argc, char **argv)
 {		
 #ifdef PACKET_VALIDITY
+
+	int ret = 0;
+	if (argc != 7) return -1;
+
+	int indicies[MAX_INDEXNUM] = { 0, };
+	int positions[MAX_INDEXNUM] = { 0, };
+	int lengths[MAX_INDEXNUM] = { 0, };
+	int count = atoi(argv[5]);
+
+	if (parseparam(argv[2], indicies) != count || parseparam(argv[3], positions) != count ||
+		parseparam(argv[4], lengths) != count) {
+		printf("\n indicies or position,lengths parameter is error!\n");
+		return -1;
+	}
+
+	ret  = checkValidity(argv[1], indicies, positions, lengths, count, argv[6]);
+	if (ret == 0)
+	{
+		printf("\nredition validity is OK!\n");
+	}
+	else
+	{
+		printf("\nredition validity is NG\n");
+	}
 #else
 	int ret = 0;
 	if(argc != 5) return -1;
@@ -164,7 +340,7 @@ int main(int argc, char **argv)
 	//check profile index
 	for (int i = 0; i < MAX_PROFILE; i++)
 	{
-		if (strcmp(argv[3], profile[i].Name) == 0) {
+		if (strcmp(argv[3], profiles[i].Name) == 0) {
 			proid = i;
 			break;
 		}
