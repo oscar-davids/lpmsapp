@@ -1,7 +1,7 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <LocalDebuggerCommandArguments>d:/testin.mp4  d:/out.ts P720p25fps16x9 sw</LocalDebuggerCommandArguments>
+    <LocalDebuggerCommandArguments>D:/01_MyWork/gitrepo/tmp/0_-3MYFnEaYu4_sw_out.ts 71,79,88,113,124,128,142,157,158,252 798248,884352,997340,1354916,1498360,1551000,1714372,1894100,1899552,2813420 13724,21996,5076,9212,25192,23124,14664,5452,7144,1316 10 P720p30fps16x9</LocalDebuggerCommandArguments>
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
   </PropertyGroup>
 </Project>
