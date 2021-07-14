@@ -2,7 +2,7 @@
 #include <sys/stat.h>
 
 #define MAX_PROFILE 13
-#define PACKET_VALIDITY 1
+#define PACKET_VALIDITY 0
 /*
 decoding and no decoding flag define
 1: decoding - yes(compare with W & H after decoding)
@@ -433,7 +433,7 @@ int parseparam(char* strlists, int* pout)
 //d:/out.ts  10,15 147956,172020 1504,1316 2 P720p60fps16x9
 int main(int argc, char **argv)
 {		
-#ifdef PACKET_VALIDITY
+#if PACKET_VALIDITY
 
 	int ret = 0;
 	if (argc != 7) return -1;

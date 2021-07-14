@@ -5,6 +5,8 @@
 
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
+#include <libavfilter/buffersrc.h>
+
 
 // Not great to appropriate internal API like this...
 const int lpms_ERR_INPUT_PIXFMT = FFERRTAG('I','N','P','X');
@@ -299,6 +301,8 @@ whileloop_end:
   for (i = 0; i < nb_outputs; i++) {
     ret = flush_outputs(ictx, &outputs[i]);
     if (ret < 0) main_err("transcoder: Unable to fully flush outputs", transcode_cleanup)
+	//send EOF signal to signature filter
+	av_buffersrc_close(outputs[i].sf.src_ctx, AV_NOPTS_VALUE, AV_BUFFERSRC_FLAG_PUSH);
   }
 
 transcode_cleanup:

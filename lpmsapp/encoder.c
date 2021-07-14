@@ -246,6 +246,9 @@ int open_output(struct output_ctx *octx, struct input_ctx *ictx)
   avio_flush(oc->pb);
   if (ret < 0) em_err("Error writing header\n");
 
+  ret = init_signature_filters(ictx, octx);
+  if (ret < 0) em_err("Unable to open signature filter");
+
   return 0;
 
 open_output_err:
@@ -309,8 +312,6 @@ static int encode(AVCodecContext* encoder, AVFrame *frame, struct output_ctx* oc
     octx->res->frames++;
     octx->res->pixels += encoder->width * encoder->height;
   }
-
-
   // We don't want to send NULL frames for HW encoding
   // because that closes the encoder: not something we want
   if (AV_HWDEVICE_TYPE_NONE == octx->hw_type || frame) {
@@ -399,6 +400,11 @@ int process_out(struct input_ctx *ictx, struct output_ctx *octx, AVCodecContext 
         frame->pict_type = AV_PICTURE_TYPE_I;
         octx->next_kf_pts = frame->pts + octx->gop_pts_len;
     }
+
+
+	ret = av_buffersrc_write_frame(octx->sf.src_ctx, frame);
+	if (ret < 0) return ret;
+
     ret = encode(encoder, frame, octx, ost);
     av_frame_unref(frame);
     // For HW we keep the encoder open so will only get EAGAIN.
